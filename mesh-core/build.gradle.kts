@@ -27,6 +27,7 @@ kotlin {
             dependencies {
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.datetime)
+                implementation(libs.kotlinx.serialization.json)
                 implementation(libs.sqldelight.coroutines)
                 implementation(libs.koin.core)
             }

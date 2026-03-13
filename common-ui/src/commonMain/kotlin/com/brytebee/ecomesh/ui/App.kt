@@ -14,6 +14,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brytebee.ecomesh.core.discovery.*
+import com.brytebee.ecomesh.core.transport.*
+import kotlinx.coroutines.launch
 
 /**
  * Root composable for EcoMesh — shared across Android, iOS, Desktop, and Web.
@@ -21,10 +23,14 @@ import com.brytebee.ecomesh.core.discovery.*
  */
 @Composable
 fun App() {
+    val scope = rememberCoroutineScope()
     val discoveryManager = remember { 
         DiscoveryManager(getPlatformDiscoveryServices() + MockDiscoveryService()) 
     }
+    val transportService = remember { getPlatformTransportService() }
     val peers by discoveryManager.peers.collectAsState()
+    
+    var connectingPeerId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         discoveryManager.start()
@@ -35,13 +41,30 @@ fun App() {
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            EcoMeshHomeScreen(peers)
+            EcoMeshHomeScreen(
+                peers = peers,
+                connectingPeerId = connectingPeerId,
+                onConnect = { peer ->
+                    scope.launch {
+                        connectingPeerId = peer.id
+                        val success = transportService.connect(peer.id)
+                        if (success) {
+                            // In real app, we'd wait for handshake here
+                        }
+                        connectingPeerId = null
+                    }
+                }
+            )
         }
     }
 }
 
 @Composable
-private fun EcoMeshHomeScreen(peers: List<Peer>) {
+private fun EcoMeshHomeScreen(
+    peers: List<Peer>,
+    connectingPeerId: String?,
+    onConnect: (Peer) -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -92,7 +115,11 @@ private fun EcoMeshHomeScreen(peers: List<Peer>) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(peers) { peer ->
-                    PeerItem(peer)
+                    PeerItem(
+                        peer = peer,
+                        isConnecting = connectingPeerId == peer.id,
+                        onConnect = { onConnect(peer) }
+                    )
                 }
             }
         }
@@ -100,7 +127,11 @@ private fun EcoMeshHomeScreen(peers: List<Peer>) {
 }
 
 @Composable
-private fun PeerItem(peer: Peer) {
+private fun PeerItem(
+    peer: Peer,
+    isConnecting: Boolean,
+    onConnect: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -125,12 +156,24 @@ private fun PeerItem(peer: Peer) {
                 )
             }
             
-            Text(
-                text = "${peer.rssi ?: "--"} dBm",
-                color = Color(0xFF80CBC4),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
+            if (isConnecting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = Color(0xFF4FC3F7),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Button(
+                    onClick = onConnect,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1D3557)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Text("Connect", fontSize = 12.sp, color = Color.White)
+                }
+            }
         }
     }
 }
