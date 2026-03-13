@@ -26,6 +26,7 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 implementation(libs.kotlinx.coroutines.core)
+                implementation(libs.kotlinx.datetime)
                 implementation(libs.sqldelight.coroutines)
                 implementation(libs.koin.core)
             }
@@ -40,6 +41,7 @@ kotlin {
             dependencies {
                 implementation(libs.sqldelight.sqlite.driver)
                 implementation(libs.kotlinx.coroutines.swing)
+                implementation(libs.jmdns)
             }
         }
         val iosMain by creating {

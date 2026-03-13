@@ -11,6 +11,8 @@ jvmTarget = "21"
 minSdk = "24"
 targetSdk = "35"
 compileSdk = "35"
+datetime = "0.6.1"
+jmdns = "3.5.9"
 
 [libraries]
 # Kotlin
@@ -19,6 +21,8 @@ kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotl
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
+jmdns = { module = "org.jmdns:jmdns", version.ref = "jmdns" }
 
 # Compose Multiplatform
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }

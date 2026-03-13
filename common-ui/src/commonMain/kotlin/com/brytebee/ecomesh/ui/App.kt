@@ -22,7 +22,7 @@ import com.brytebee.ecomesh.core.discovery.*
 @Composable
 fun App() {
     val discoveryManager = remember { 
-        DiscoveryManager(listOf(MockDiscoveryService())) 
+        DiscoveryManager(getPlatformDiscoveryServices() + MockDiscoveryService()) 
     }
     val peers by discoveryManager.peers.collectAsState()
 
