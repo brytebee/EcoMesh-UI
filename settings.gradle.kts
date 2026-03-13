@@ -30,5 +30,6 @@ dependencyResolutionManagement {
 // Project modules
 include(":common-ui")
 include(":mesh-core")
+project(":mesh-core").projectDir = File(settingsDir, "../EcoMesh-Core")
 include(":mobile-app")
 include(":desktop-app")
