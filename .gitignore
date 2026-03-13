@@ -1,0 +1,26 @@
+# === Gradle ===
+.gradle/
+build/
+local.properties
+*.hprof
+
+# === IDE ===
+.idea/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+
+# === Android ===
+/mobile-app/local.properties
+
+# === Kotlin Build Cache ===
+.kotlin/
+
+# === Wasm / JS ===
+kotlin-js-store/
+
+# === Secrets — NEVER COMMIT ===
+*.keystore
+*.jks
+google-services.json
