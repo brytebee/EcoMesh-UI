@@ -28,6 +28,8 @@ import com.brytebee.ecomesh.core.MeshCore
 import com.brytebee.ecomesh.core.messaging.*
 import com.brytebee.ecomesh.core.db.getDatabaseDriverFactory
 import kotlinx.coroutines.launch
+import com.brytebee.ecomesh.core.messaging.TransferProgress
+import com.brytebee.ecomesh.core.messaging.MeshHandshakeState
 
 /**
  * Root composable for EcoMesh — shared across Android, iOS, Desktop, and Web.
@@ -70,6 +72,8 @@ fun App() {
             color = Color(0xFF070B14)
         ) {
             EcoMeshHomeScreen(
+                meshCore = meshCore,
+                scope = scope,
                 peers = peers,
                 connectingPeerId = connectingPeerId,
                 handshakeState = currentHandshakeState,
@@ -82,6 +86,15 @@ fun App() {
                         if (!success) {
                             connectingPeerId = null
                         }
+                    }
+                },
+                onSendFile = { peer ->
+                    scope.launch {
+                        meshCore.fileTransferService.sendFile(
+                            fileId = "file-${(100..999).random()}",
+                            fileName = "EcoMesh_Report.pdf",
+                            filePath = "mock_report.pdf"
+                        )
                     }
                 }
             )
@@ -125,13 +138,18 @@ fun MeshPulseAnimation(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun EcoMeshHomeScreen(
+fun EcoMeshHomeScreen(
+    meshCore: MeshCore,
+    scope: kotlinx.coroutines.CoroutineScope,
     peers: List<Peer>,
     connectingPeerId: String?,
     handshakeState: MeshHandshakeState,
     thermalLevel: ThermalLevel,
-    onConnect: (Peer) -> Unit
+    onConnect: (Peer) -> Unit,
+    onSendFile: (Peer) -> Unit
 ) {
+    val transfers by meshCore.fileTransferService.activeTransfers.collectAsState()
+    
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -201,8 +219,47 @@ private fun EcoMeshHomeScreen(
             // Connection Status Bar
             HandshakeStatusBar(handshakeState)
 
+            Spacer(Modifier.height(16.dp))
+
+            // Gossip Broadcast Button
+            if (handshakeState is MeshHandshakeState.Authenticated) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            meshCore.gossipManager.publishGossip("ALERT", "🚨 Emergency Mesh Alert!")
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x22F44336)),
+                    border = BorderStroke(1.dp, Color(0x44F44336)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("📢 SHARE ALERT (GOSSIP)", color = Color(0xFFEF5350), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
             Spacer(Modifier.height(24.dp))
             
+            // Active Transfers Section
+            if (transfers.isNotEmpty()) {
+                Text(
+                    text = "ACTIVE TRANSFERS",
+                    color = Color(0xFF4FC3F7),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(items = transfers.values.toList()) { transfer ->
+                        TransferItem(transfer)
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -221,7 +278,8 @@ private fun EcoMeshHomeScreen(
                         peer = peer,
                         isConnecting = connectingPeerId == peer.id,
                         handshakeState = handshakeState,
-                        onConnect = { onConnect(peer) }
+                        onConnect = { onConnect(peer) },
+                        onSendFile = { onSendFile(peer) }
                     )
                 }
             }
@@ -264,11 +322,12 @@ fun HandshakeStatusBar(state: MeshHandshakeState) {
 }
 
 @Composable
-private fun PeerItem(
+fun PeerItem(
     peer: Peer,
     isConnecting: Boolean,
     handshakeState: MeshHandshakeState,
-    onConnect: () -> Unit
+    onConnect: () -> Unit,
+    onSendFile: () -> Unit
 ) {
     // isPeerConnected: once Authenticated, highlight the peer we were connecting to.
     // We can't compare peerNodeId to peer.id directly because mDNS service name != handshake nodeId.
@@ -348,6 +407,38 @@ private fun PeerItem(
                     Text("CONNECT", fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
                 }
             }
+
+            if (isPeerConnected) {
+                IconButton(onClick = onSendFile) {
+                    Text("📁", fontSize = 18.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TransferItem(transfer: TransferProgress) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0x11FFFFFF)),
+        border = BorderStroke(1.dp, Color(0x22FFFFFF))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("📄", fontSize = 16.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(transfer.fileName, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(transfer.status, color = if (transfer.status == "COMPLETED") Color(0xFF4CAF50) else Color(0xFFB0BEC5), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = transfer.progress,
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                color = Color(0xFF4FC3F7),
+                trackColor = Color(0x33FFFFFF)
+            )
         }
     }
 }
