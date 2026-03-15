@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brytebee.ecomesh.core.discovery.*
 import com.brytebee.ecomesh.core.transport.*
+import com.brytebee.ecomesh.core.thermal.ThermalLevel
 import kotlinx.coroutines.launch
 
 /**
@@ -29,6 +30,7 @@ fun App() {
     }
     val transportService = remember { getPlatformTransportService() }
     val peers by discoveryManager.peers.collectAsState()
+    val thermalLevel by discoveryManager.thermalService.thermalLevel.collectAsState()
     
     var connectingPeerId by remember { mutableStateOf<String?>(null) }
 
@@ -44,6 +46,7 @@ fun App() {
             EcoMeshHomeScreen(
                 peers = peers,
                 connectingPeerId = connectingPeerId,
+                thermalLevel = thermalLevel,
                 onConnect = { peer ->
                     scope.launch {
                         connectingPeerId = peer.id
@@ -63,6 +66,7 @@ fun App() {
 private fun EcoMeshHomeScreen(
     peers: List<Peer>,
     connectingPeerId: String?,
+    thermalLevel: ThermalLevel,
     onConnect: (Peer) -> Unit
 ) {
     Box(
@@ -90,20 +94,49 @@ private fun EcoMeshHomeScreen(
                 fontSize = 14.sp,
             )
             
+            if (thermalLevel >= ThermalLevel.LEVEL_2_ECO) {
+                Spacer(Modifier.height(16.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1B5E20))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🌿 Cooling Active: Mesh capabilities throttled to protect hardware.",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+            
             Spacer(Modifier.height(32.dp))
             
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = Color(0xFF80CBC4)
-                )
+            if (thermalLevel < ThermalLevel.LEVEL_2_ECO) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = Color(0xFF80CBC4)
+                    )
+                    Text(
+                        text = "Scanning for nearby peers...",
+                        color = Color(0xFF80CBC4),
+                        fontSize = 14.sp,
+                    )
+                }
+            } else {
                 Text(
-                    text = "Scanning for nearby peers...",
-                    color = Color(0xFF80CBC4),
+                    text = "Discovery Paused (Thermal Protection)",
+                    color = Color.Gray,
                     fontSize = 14.sp,
                 )
             }

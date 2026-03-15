@@ -44,7 +44,7 @@ EcoMesh-UI (this repo — public)     EcoMesh-Core (private)
 
 ## Account Tiers
 
-| Feature | Free | Mid (₦300/mo) | Pro (₦700/mo) |
+| Feature | Free | Standard (₦300/mo) | Pro (₦700/mo) |
 |---|---|---|---|
 | Offline text | ✅ | ✅ | ✅ |
 | Photos / Audio | ❌ | ✅ | ✅ |
@@ -54,6 +54,13 @@ EcoMesh-UI (this repo — public)     EcoMesh-Core (private)
 | Offline payments | ❌ | ❌ | ✅ |
 
 > Payment integration (Phase 7) uses NIBSS offline protocols + Moniepoint Paycode API.
+
+---
+
+## Real-World Use Cases
+
+- **Cross-Device Workspace Synchronization:** Seamlessly sync files, code, or build artifacts between different environments (e.g., a development MacBook and a Windows build machine) without needing to route through external internet servers. This solves the exact friction of moving local projects across devices for building and testing.
+- **Off-Grid Connectivity:** Chat or share files in areas with zero internet or cellular coverage using peer-to-peer mesh routing.
 
 ---
 
