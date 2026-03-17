@@ -59,6 +59,7 @@ kotlin {
         val androidMain by getting {
             dependencies {
                 implementation(libs.kotlinx.coroutines.android)
+                implementation(libs.androidx.activity.compose)
             }
         }
         val desktopMain by getting {

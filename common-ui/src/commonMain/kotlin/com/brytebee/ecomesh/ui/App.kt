@@ -60,6 +60,7 @@ fun App() {
     // Core Session & Messaging state
     val activeSessions by meshCore.sessionManager.activeSessions.collectAsState()
     val allMessages by meshCore.messagingManager.allMessages.collectAsState(initial = emptyList())
+    val activeTransfers by meshCore.fileTransferService.activeTransfers.collectAsState()
     
     var connectingPeerId by remember { mutableStateOf<String?>(null) }
     var activeChatPeerId by remember { mutableStateOf<String?>(null) }
@@ -85,10 +86,22 @@ fun App() {
                 ChatScreen(
                     peerId = activeChatPeerId!!,
                     messages = allMessages.filter { it.senderId == activeChatPeerId || it.senderId == meshCore.sessionManager.localNodeId },
+                    activeTransfers = activeTransfers,
                     onBack = { activeChatPeerId = null },
                     onSendMessage = { text ->
                         scope.launch {
                             meshCore.messagingManager.sendMessage(activeChatPeerId!!, text)
+                        }
+                    },
+                    onSendFileRaw = { bytes, fileName ->
+                        scope.launch {
+                            meshCore.messagingManager.sendMessage(activeChatPeerId!!, "📁 Shared file: $fileName")
+                            meshCore.fileTransferService.sendFileRaw(
+                                targetNodeId = activeChatPeerId!!,
+                                fileId = "file-${(100..999).random()}",
+                                fileName = fileName,
+                                fileData = bytes
+                            )
                         }
                     }
                 )
@@ -113,16 +126,9 @@ fun App() {
                         activeChatPeerId = peerNodeId
                     },
                     onSendFile = { peerNodeId ->
-                        scope.launch {
-                            val fileName = "EcoMesh_Report.pdf"
-                            meshCore.messagingManager.sendMessage(peerNodeId, "📁 Shared file: $fileName")
-                            meshCore.fileTransferService.sendFile(
-                                targetNodeId = peerNodeId,
-                                fileId = "file-${(100..999).random()}",
-                                fileName = fileName,
-                                filePath = "mock_report.pdf"
-                            )
-                        }
+                        activeChatPeerId = peerNodeId 
+                        // Note: To use rememberFilePicker within a non-composable callback securely, 
+                        // we must hoist it. We'll add this inside ChatScreen later.
                     }
                 )
             }
@@ -193,16 +199,19 @@ fun EcoMeshHomeScreen(
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header with Pulse
-            Box(contentAlignment = Alignment.Center) {
-                if (thermalLevel < ThermalLevel.LEVEL_2_ECO) {
-                    MeshPulseAnimation(modifier = Modifier.size(100.dp))
+            // Mesh Map Visualisation
+            if (thermalLevel < ThermalLevel.LEVEL_2_ECO) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().height(200.dp)) {
+                    MeshMapCanvas(peers = peers, activeSessions = activeSessions)
                 }
-                Text(
-                    text = "🌐",
-                    fontSize = 40.sp,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+            } else {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "🌐",
+                        fontSize = 40.sp,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
             }
             
             Text(
@@ -430,7 +439,14 @@ fun PeerItem(
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = peer.name, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-                Text(text = peer.id.take(12), color = Color(0xFF90CAF9), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = peer.id.take(12), color = Color(0xFF90CAF9), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.width(8.dp))
+                    Text(text = "📶 Good", color = Color(0xFFAED581), fontSize = 10.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(text = "🔋 85%", color = Color(0xFFAED581), fontSize = 10.sp)
+                }
+                Text(text = "Online just now", color = Color(0x88FFFFFF), fontSize = 10.sp)
             }
             
             if (isConnecting) {
@@ -479,12 +495,20 @@ fun TransferItem(transfer: TransferProgress) {
 @Composable
 fun ChatScreen(
     peerId: String,
-    messages: List<MeshPacket.ChatMessage>,
+    messages: List<com.brytebee.ecomesh.core.messaging.ChatMessageModel>,
+    activeTransfers: Map<String, com.brytebee.ecomesh.core.messaging.TransferProgress>,
     onBack: () -> Unit,
-    onSendMessage: (String) -> Unit
+    onSendMessage: (String) -> Unit,
+    onSendFileRaw: (ByteArray, String) -> Unit
 ) {
     var textState by remember { mutableStateOf("") }
     
+    val filePickerLauncher = rememberFilePicker { bytes, name ->
+        if (bytes != null && name != null) {
+            onSendFileRaw(bytes, name)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -565,9 +589,9 @@ fun ChatScreen(
                                 .shadow(if (isMe) 8.dp else 4.dp, bubbleShape)
                                 .background(
                                     brush = if (isMe) {
-                                        Brush.linearGradient(listOf(Color(0xFF4FC3F7), Color(0xFF1E88E5)))
+                                        Brush.linearGradient(listOf(Color(0xFF1976D2), Color(0xFF0D47A1)))
                                     } else {
-                                        Brush.linearGradient(listOf(Color(0x44FFFFFF), Color(0x22FFFFFF)))
+                                        Brush.linearGradient(listOf(Color(0xFF263238), Color(0xFF1C313A)))
                                     },
                                     shape = bubbleShape
                                 )
@@ -586,13 +610,73 @@ fun ChatScreen(
                                     fontWeight = FontWeight.Medium,
                                     lineHeight = 20.sp
                                 )
+                                
+                                val filePrefix = "📁 Shared file: "
+                                if (msg.content.startsWith(filePrefix)) {
+                                    val fileName = msg.content.removePrefix(filePrefix)
+                                    val transfer = activeTransfers.values.find { it.fileName == fileName }
+                                    if (transfer != null && transfer.status != "COMPLETED") {
+                                        Spacer(Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0x22000000)).padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            LinearProgressIndicator(
+                                                progress = transfer.progress,
+                                                modifier = Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                                color = if (isMe) Color.White else Color(0xFF4FC3F7),
+                                                trackColor = Color(0x44FFFFFF)
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(
+                                                text = "${(transfer.progress * 100).toInt()}%",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    } else if (transfer?.status == "COMPLETED" || transfer == null) {
+                                        // Allow opening the file if it's completed or already existed 
+                                        Spacer(Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0x22000000))
+                                                .clickable { openFile(fileName) }
+                                                .padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("👁 Open File", color = Color(0xFF64FFDA), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                                
                                 Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = formatTimestamp(msg.timestamp),
-                                    color = if (isMe) Color(0xAAFFFFFF) else Color(0x88E3F2FD),
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.align(Alignment.End)
-                                )
+                                Row(modifier = Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = formatTimestamp(msg.timestamp),
+                                        color = if (isMe) Color(0xAAFFFFFF) else Color(0x88E3F2FD),
+                                        fontSize = 10.sp
+                                    )
+                                    if (isMe) {
+                                        Spacer(Modifier.width(4.dp))
+                                        val tickText = when (msg.status) {
+                                            "PENDING", "SENDING" -> "⌚"
+                                            "SENT" -> "✓"
+                                            "DELIVERED" -> "✓✓"
+                                            "FAILED" -> "✗"
+                                            else -> "✓"
+                                        }
+                                        val tickColor = if (msg.status == "DELIVERED") Color(0xFF64FFDA) else Color(0xBBFFFFFF)
+                                        Text(
+                                            text = tickText,
+                                            color = tickColor,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -630,8 +714,20 @@ fun ChatScreen(
                     )
                 }
                 
-                Spacer(Modifier.width(12.dp))
+                // File Attachment Button
+                Button(
+                    onClick = { filePickerLauncher() },
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(0.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFFFFF)),
+                    border = BorderStroke(1.dp, Color(0x22FFFFFF))
+                ) {
+                    Text("📎", fontSize = 24.sp)
+                }
                 
+                Spacer(Modifier.width(8.dp))
+
                 val isInputActive = textState.isNotBlank()
                 Button(
                     onClick = {
@@ -665,4 +761,46 @@ fun formatTimestamp(epochMillis: Long): String {
     val hour = localDateTime.hour.toString().padStart(2, '0')
     val minute = localDateTime.minute.toString().padStart(2, '0')
     return "$hour:$minute"
+}
+
+@Composable
+fun MeshMapCanvas(peers: List<com.brytebee.ecomesh.core.discovery.Peer>, activeSessions: Map<String, com.brytebee.ecomesh.core.messaging.PeerSession>) {
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(180.dp)) {
+        val center = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2)
+        val radiusLimit = size.minDimension / 2.5f
+        
+        // Draw Radar rings
+        drawCircle(color = Color(0x11FFFFFF), radius = radiusLimit, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f))
+        drawCircle(color = Color(0x22FFFFFF), radius = radiusLimit * 0.6f, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f))
+        
+        // Central Node
+        drawCircle(color = Color(0xFF4FC3F7), radius = 12f, center = center)
+        
+        // Draw Peers
+        val angleStep = if (peers.isNotEmpty()) (2 * kotlin.math.PI / peers.size).toFloat() else 0f
+        peers.forEachIndexed { index, peer ->
+            val angle = index * angleStep
+            val distance = radiusLimit * 0.8f // Simplified fixed distance
+            val x = center.x + kotlin.math.cos(angle) * distance
+            val y = center.y + kotlin.math.sin(angle) * distance
+            val peerOffset = androidx.compose.ui.geometry.Offset(x, y)
+            
+            val isConnected = activeSessions.values.any { it.nodeId == peer.id }
+            
+            if (isConnected) {
+                // Draw connecting line
+                drawLine(
+                    color = Color(0xFF4CAF50),
+                    start = center,
+                    end = peerOffset,
+                    strokeWidth = 2f
+                )
+                // Draw connected peer
+                drawCircle(color = Color(0xFF4CAF50), radius = 10f, center = peerOffset)
+            } else {
+                // Draw disconnected peer
+                drawCircle(color = Color(0x88FFFFFF), radius = 8f, center = peerOffset)
+            }
+        }
+    }
 }
