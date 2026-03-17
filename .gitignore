@@ -27,3 +27,9 @@ mesh-core/docs/
 *.keystore
 *.jks
 google-services.json
+
+# === Debug Logs / Temp files ===
+*.log
+*_error.log
+*_error*.log
+mock_*.pdf

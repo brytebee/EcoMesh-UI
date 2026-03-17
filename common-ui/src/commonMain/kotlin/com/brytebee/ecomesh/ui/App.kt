@@ -15,7 +15,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Brush
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -29,7 +34,7 @@ import com.brytebee.ecomesh.core.messaging.*
 import com.brytebee.ecomesh.core.db.getDatabaseDriverFactory
 import kotlinx.coroutines.launch
 import com.brytebee.ecomesh.core.messaging.TransferProgress
-import com.brytebee.ecomesh.core.messaging.MeshHandshakeState
+
 
 /**
  * Root composable for EcoMesh — shared across Android, iOS, Desktop, and Web.
@@ -52,12 +57,16 @@ fun App() {
     val peers by meshCore.discoveryManager.peers.collectAsState()
     val thermalLevel by meshCore.discoveryManager.thermalService.thermalLevel.collectAsState()
     
-    val currentHandshakeState by meshCore.handshakeState.collectAsState()
+    // Core Session & Messaging state
+    val activeSessions by meshCore.sessionManager.activeSessions.collectAsState()
+    val allMessages by meshCore.messagingManager.allMessages.collectAsState(initial = emptyList())
+    
     var connectingPeerId by remember { mutableStateOf<String?>(null) }
+    var activeChatPeerId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(currentHandshakeState) {
-        // Clear the loading spinner on any terminal state
-        if (currentHandshakeState !is MeshHandshakeState.Negotiating) {
+    LaunchedEffect(activeSessions) {
+        // Clear connecting spinner if the session was established or failed
+        if (connectingPeerId != null && activeSessions.containsKey(connectingPeerId)) {
             connectingPeerId = null
         }
     }
@@ -71,33 +80,52 @@ fun App() {
             modifier = Modifier.fillMaxSize(),
             color = Color(0xFF070B14)
         ) {
-            EcoMeshHomeScreen(
-                meshCore = meshCore,
-                scope = scope,
-                peers = peers,
-                connectingPeerId = connectingPeerId,
-                handshakeState = currentHandshakeState,
-                thermalLevel = thermalLevel,
-                onConnect = { peer ->
-                    scope.launch {
-                        connectingPeerId = peer.id
-                        val success = meshCore.connectToPeer(peer)
-                        // If connection failed before handshake even started, clear spinner
-                        if (!success) {
-                            connectingPeerId = null
+            if (activeChatPeerId != null) {
+                // Show Chat Screen (to be implemented)
+                ChatScreen(
+                    peerId = activeChatPeerId!!,
+                    messages = allMessages.filter { it.senderId == activeChatPeerId || it.senderId == meshCore.sessionManager.localNodeId },
+                    onBack = { activeChatPeerId = null },
+                    onSendMessage = { text ->
+                        scope.launch {
+                            meshCore.messagingManager.sendMessage(activeChatPeerId!!, text)
                         }
                     }
-                },
-                onSendFile = { peer ->
-                    scope.launch {
-                        meshCore.fileTransferService.sendFile(
-                            fileId = "file-${(100..999).random()}",
-                            fileName = "EcoMesh_Report.pdf",
-                            filePath = "mock_report.pdf"
-                        )
+                )
+            } else {
+                EcoMeshHomeScreen(
+                    meshCore = meshCore,
+                    scope = scope,
+                    peers = peers,
+                    activeSessions = activeSessions,
+                    connectingPeerId = connectingPeerId,
+                    thermalLevel = thermalLevel,
+                    onConnect = { peer ->
+                        scope.launch {
+                            connectingPeerId = peer.id
+                            val success = meshCore.connectToPeer(peer)
+                            if (!success) {
+                                connectingPeerId = null
+                            }
+                        }
+                    },
+                    onOpenChat = { peerNodeId ->
+                        activeChatPeerId = peerNodeId
+                    },
+                    onSendFile = { peerNodeId ->
+                        scope.launch {
+                            val fileName = "EcoMesh_Report.pdf"
+                            meshCore.messagingManager.sendMessage(peerNodeId, "📁 Shared file: $fileName")
+                            meshCore.fileTransferService.sendFile(
+                                targetNodeId = peerNodeId,
+                                fileId = "file-${(100..999).random()}",
+                                fileName = fileName,
+                                filePath = "mock_report.pdf"
+                            )
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }
@@ -142,11 +170,12 @@ fun EcoMeshHomeScreen(
     meshCore: MeshCore,
     scope: kotlinx.coroutines.CoroutineScope,
     peers: List<Peer>,
+    activeSessions: Map<String, PeerSession>,
     connectingPeerId: String?,
-    handshakeState: MeshHandshakeState,
     thermalLevel: ThermalLevel,
     onConnect: (Peer) -> Unit,
-    onSendFile: (Peer) -> Unit
+    onOpenChat: (String) -> Unit,
+    onSendFile: (String) -> Unit
 ) {
     val transfers by meshCore.fileTransferService.activeTransfers.collectAsState()
     
@@ -216,13 +245,12 @@ fun EcoMeshHomeScreen(
                 Spacer(Modifier.height(24.dp))
             }
 
-            // Connection Status Bar
-            HandshakeStatusBar(handshakeState)
+            SessionStatusBar(sessionCount = activeSessions.size)
 
             Spacer(Modifier.height(16.dp))
 
-            // Gossip Broadcast Button
-            if (handshakeState is MeshHandshakeState.Authenticated) {
+            // Gossip Broadcast Button (Available if at least 1 session is active)
+            if (activeSessions.isNotEmpty()) {
                 Button(
                     onClick = {
                         scope.launch {
@@ -260,8 +288,34 @@ fun EcoMeshHomeScreen(
                 Spacer(Modifier.height(24.dp))
             }
 
+            // Active Sessions Section
+            if (activeSessions.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 250.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        Text(
+                            text = "ACTIVE SESSIONS",
+                            color = Color(0xFF4CAF50),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                    items(items = activeSessions.values.toList()) { session ->
+                        SessionItem(
+                            session = session,
+                            onSendFile = { onSendFile(session.nodeId) },
+                            onOpenChat = { onOpenChat(session.nodeId) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+
             LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item {
@@ -277,9 +331,7 @@ fun EcoMeshHomeScreen(
                     PeerItem(
                         peer = peer,
                         isConnecting = connectingPeerId == peer.id,
-                        handshakeState = handshakeState,
-                        onConnect = { onConnect(peer) },
-                        onSendFile = { onSendFile(peer) }
+                        onConnect = { onConnect(peer) }
                     )
                 }
             }
@@ -288,12 +340,11 @@ fun EcoMeshHomeScreen(
 }
 
 @Composable
-fun HandshakeStatusBar(state: MeshHandshakeState) {
-    val (text, color) = when (state) {
-        is MeshHandshakeState.Idle -> "Standby" to Color(0xFF78909C)
-        is MeshHandshakeState.Negotiating -> "Negotiating Encryption..." to Color(0xFFFFB300)
-        is MeshHandshakeState.Authenticated -> "Securely Connected" to Color(0xFF4CAF50)
-        is MeshHandshakeState.Failed -> "Handshake Failed" to Color(0xFFF44336)
+fun SessionStatusBar(sessionCount: Int) {
+    val (text, color) = if (sessionCount > 0) {
+        "$sessionCount peer${if (sessionCount > 1) "s" else ""} connected" to Color(0xFF4CAF50)
+    } else {
+        "No active sessions" to Color(0xFF78909C)
     }
 
     Surface(
@@ -322,95 +373,77 @@ fun HandshakeStatusBar(state: MeshHandshakeState) {
 }
 
 @Composable
-fun PeerItem(
-    peer: Peer,
-    isConnecting: Boolean,
-    handshakeState: MeshHandshakeState,
-    onConnect: () -> Unit,
-    onSendFile: () -> Unit
+fun SessionItem(
+    session: PeerSession,
+    onSendFile: () -> Unit,
+    onOpenChat: () -> Unit
 ) {
-    // isPeerConnected: once Authenticated, highlight the peer we were connecting to.
-    // We can't compare peerNodeId to peer.id directly because mDNS service name != handshake nodeId.
-    // Instead, we just show all peers as connected when Authenticated (single-peer bridge model).
-    val isPeerConnected = handshakeState is MeshHandshakeState.Authenticated
-    
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isPeerConnected) Color(0x224CAF50) else Color(0x11FFFFFF)
-        ),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isPeerConnected) Color(0x444CAF50) else Color(0x22FFFFFF)
-        )
+        colors = CardDefaults.cardColors(containerColor = Color(0x224CAF50)),
+        border = BorderStroke(width = 1.dp, color = Color(0x444CAF50))
     ) {
         Row(
             modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Peer Icon
             Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(if (isPeerConnected) Color(0xFF4CAF50) else Color(0xFF1D3557)),
+                modifier = Modifier.size(48.dp).clip(CircleShape).background(Color(0xFF4CAF50)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (peer.type == PeerType.MOBILE) "📱" else "💻",
-                    fontSize = 20.sp
-                )
+                Text(text = "🛡️", fontSize = 20.sp)
             }
-            
             Spacer(Modifier.width(16.dp))
-
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = peer.name,
-                    color = Color.White,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 17.sp
-                )
-                Text(
-                    text = peer.id.take(12),
-                    color = Color(0xFF90CAF9),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text(text = session.displayName, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                Text(text = session.nodeId.take(12), color = Color(0xFF90CAF9), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            }
+            IconButton(onClick = onOpenChat) { Text("💬", fontSize = 18.sp) }
+            IconButton(onClick = onSendFile) { Text("📁", fontSize = 18.sp) }
+        }
+    }
+}
+
+@Composable
+fun PeerItem(
+    peer: Peer,
+    isConnecting: Boolean,
+    onConnect: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0x11FFFFFF)),
+        border = BorderStroke(width = 1.dp, color = Color(0x22FFFFFF))
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(48.dp).clip(CircleShape).background(Color(0xFF1D3557)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(text = if (peer.type == PeerType.MOBILE) "📱" else "💻", fontSize = 20.sp)
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = peer.name, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                Text(text = peer.id.take(12), color = Color(0xFF90CAF9), fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
             
-            if (isConnecting && !isPeerConnected) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = Color(0xFFFFB300),
-                    strokeWidth = 2.dp
-                )
-            } else if (isPeerConnected) {
-                Text(
-                    text = "CONNECTED",
-                    color = Color(0xFF4CAF50),
-                    fontWeight = FontWeight.Black,
-                    fontSize = 10.sp
-                )
+            if (isConnecting) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color(0xFFFFB300), strokeWidth = 2.dp)
             } else {
                 Button(
                     onClick = onConnect,
                     shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4FC3F7),
-                        contentColor = Color(0xFF070B14)
-                    ),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4FC3F7), contentColor = Color(0xFF070B14)),
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     modifier = Modifier.height(32.dp)
                 ) {
                     Text("CONNECT", fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
-                }
-            }
-
-            if (isPeerConnected) {
-                IconButton(onClick = onSendFile) {
-                    Text("📁", fontSize = 18.sp)
                 }
             }
         }
@@ -441,4 +474,195 @@ fun TransferItem(transfer: TransferProgress) {
             )
         }
     }
+}
+
+@Composable
+fun ChatScreen(
+    peerId: String,
+    messages: List<MeshPacket.ChatMessage>,
+    onBack: () -> Unit,
+    onSendMessage: (String) -> Unit
+) {
+    var textState by remember { mutableStateOf("") }
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(Color(0xFF1A237E), Color(0xFF070B14)),
+                    radius = 2000f
+                )
+            )
+    ) {
+        Column(modifier = Modifier.fillMaxSize().imePadding()) {
+            // Glassmorphism Header
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0x331D3557)),
+                border = BorderStroke(1.dp, Color(0x22FFFFFF)),
+                elevation = CardDefaults.cardElevation(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.size(40.dp).background(Color(0x22FFFFFF), CircleShape)
+                    ) {
+                        Text("🔙", fontSize = 18.sp)
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "SECURE CHAT",
+                            color = Color(0xFF4FC3F7),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(8.dp).background(Color(0xFF4CAF50), CircleShape))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = peerId.take(12),
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Messages
+            LazyColumn(
+                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                reverseLayout = true,
+                contentPadding = PaddingValues(vertical = 16.dp)
+            ) {
+                items(messages.reversed(), key = { it.id }) { msg ->
+                    val isMe = msg.senderId != peerId // Simplified checking
+                    
+                    val bubbleShape = if (isMe) {
+                        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 4.dp)
+                    } else {
+                        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .widthIn(min = 60.dp, max = 280.dp)
+                                .shadow(if (isMe) 8.dp else 4.dp, bubbleShape)
+                                .background(
+                                    brush = if (isMe) {
+                                        Brush.linearGradient(listOf(Color(0xFF4FC3F7), Color(0xFF1E88E5)))
+                                    } else {
+                                        Brush.linearGradient(listOf(Color(0x44FFFFFF), Color(0x22FFFFFF)))
+                                    },
+                                    shape = bubbleShape
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isMe) Color.Transparent else Color(0x33FFFFFF),
+                                    shape = bubbleShape
+                                )
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = msg.content,
+                                    color = if (isMe) Color.White else Color(0xFFE3F2FD),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    lineHeight = 20.sp
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = formatTimestamp(msg.timestamp),
+                                    color = if (isMe) Color(0xAAFFFFFF) else Color(0x88E3F2FD),
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.align(Alignment.End)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Floating Input Pill
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .navigationBarsPadding(),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Card(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0x33FFFFFF)),
+                    border = BorderStroke(1.dp, Color(0x22FFFFFF))
+                ) {
+                    TextField(
+                        value = textState,
+                        onValueChange = { textState = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 120.dp),
+                        placeholder = { Text("Type a message...", color = Color(0x99FFFFFF)) },
+                        colors = TextFieldDefaults.colors(
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedTextColor = Color.White,
+                            focusedTextColor = Color.White,
+                            cursorColor = Color(0xFF4FC3F7),
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent
+                        )
+                    )
+                }
+                
+                Spacer(Modifier.width(12.dp))
+                
+                val isInputActive = textState.isNotBlank()
+                Button(
+                    onClick = {
+                        if (isInputActive) {
+                            onSendMessage(textState)
+                            textState = ""
+                        }
+                    },
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(0.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isInputActive) Color(0xFF4FC3F7) else Color(0x33FFFFFF)
+                    ),
+                    border = if (isInputActive) null else BorderStroke(1.dp, Color(0x22FFFFFF))
+                ) {
+                    Text(
+                        text = "🚀",
+                        fontSize = 24.sp,
+                        color = if (isInputActive) Color.White else Color(0x88FFFFFF)
+                    )
+                }
+            }
+        }
+    }
+}
+
+fun formatTimestamp(epochMillis: Long): String {
+    val instant = Instant.fromEpochMilliseconds(epochMillis)
+    val localDateTime = instant.toLocalDateTime(TimeZone.currentSystemDefault())
+    val hour = localDateTime.hour.toString().padStart(2, '0')
+    val minute = localDateTime.minute.toString().padStart(2, '0')
+    return "$hour:$minute"
 }
