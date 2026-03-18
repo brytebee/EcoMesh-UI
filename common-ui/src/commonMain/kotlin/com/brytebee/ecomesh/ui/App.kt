@@ -479,7 +479,7 @@ fun TransferItem(transfer: TransferProgress) {
 @Composable
 fun ChatScreen(
     peerId: String,
-    messages: List<MeshPacket.ChatMessage>,
+    messages: List<ChatMessageModel>,
     onBack: () -> Unit,
     onSendMessage: (String) -> Unit
 ) {
