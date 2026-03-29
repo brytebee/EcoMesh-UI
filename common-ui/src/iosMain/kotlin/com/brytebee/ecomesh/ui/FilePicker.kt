@@ -3,7 +3,7 @@ package com.brytebee.ecomesh.ui
 import androidx.compose.runtime.Composable
 
 @Composable
-actual fun rememberFilePicker(onResult: (ByteArray?, String?) -> Unit): () -> Unit {
+actual fun rememberFilePicker(onResult: (String?, String?) -> Unit): () -> Unit {
     return {
         // TODO: Implement UIDocumentPickerViewController for iOS
         println("EcoMesh: File picker not yet implemented on iOS")

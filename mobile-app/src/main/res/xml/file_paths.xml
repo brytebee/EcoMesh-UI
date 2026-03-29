@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Legacy internal downloads -->
+    <files-path name="ecomesh_downloads" path="downloads/" />
+    <!-- New public downloads folder -->
+    <external-path name="public_downloads" path="Download/EcoMesh/" />
+    <!-- Cache folder for sent files -->
+    <cache-path name="ecomesh_cache" path="." />
+</paths>
