@@ -64,16 +64,38 @@ EcoMesh-UI (this repo — public)     EcoMesh-Core (private)
 
 ---
 
-## Roadmap
+## Getting Started & Running
 
-- [x] **Phase 1** — Foundation: KMP scaffold, GitHub repos, GitHub Pages, tier stubs
-- [ ] **Phase 2** — Discovery Engine: Bluetooth LE + Wi-Fi Direct handshake
-- [ ] **Phase 3** — Eco Mode Safety: 42°C thermal protocol
-- [ ] **Phase 4** — Mesh Messaging & File Sharing
-- [ ] **Phase 5** — Cross-Device Session (Phone ↔ Laptop sync)
-- [ ] **Phase 6** — UI/UX Polish
-- [ ] **Phase 7** — Monetisation (NIBSS + Moniepoint)
+The project contains launcher scripts to automatically build and deploy the Android app to a connected device via `adb` and run the JVM Desktop app concurrently.
+
+### 💻 macOS (MacBook)
+1. Ensure your Android device is connected via USB with USB Debugging enabled.
+2. Initialize environment variable paths (e.g., in `~/.zshrc`) as described in the **[MacBook Setup & Migration Guide](file:///c:/Users/RevFavour/Documents/dev/eco-mesh/EcoMesh-Core/docs/macbook_setup_guide.md)**.
+3. Make the script executable and run:
+   ```bash
+   chmod +x run_mesh.sh
+   ./run_mesh.sh
+   ```
+
+### 🪟 Windows
+1. Open PowerShell and run:
+   ```powershell
+   .\run_mesh.ps1
+   ```
 
 ---
 
-*The mesh engine is proprietary — available for licensing. Contact: [brytebee on GitHub](https://github.com/brytebee)*
+## Roadmap
+
+- [x] **Phase 1** — Foundation: KMP scaffold, GitHub repos, GitHub Pages, tier stubs
+- [x] **Phase 2** — Discovery Engine: Dual BLE and mDNS (Network Service Discovery) bridge
+- [x] **Phase 3** — Eco Mode Safety: 42°C thermal polling protocol, scan throttling, cooling banners
+- [x] **Phase 4** — Secure Handshake & Messaging: Curve25519 E2EE keys, TCP message framing, multi-peer sessions, and chat UI
+- [x] **Phase 5** — Resumable File Transfers & DSR: Memory-safe chunk streaming, atomic TCP mutex locks, 2-way resumes, and non-flooding Dynamic Source Routing (DSR)
+- [x] **Phase 6** — UI/UX Redesign: Silicon Valley obsidian glassmorphism theme, pulsing radar canvas, and compact action pills
+- [ ] **Phase 7** — Monetisation: NIBSS offline protocol + Moniepoint Paycode API integration
+
+---
+
+*The mesh engine is proprietary — available for licensing. Detailed core documentation can be found in the `EcoMesh-Core/docs/` directory. Contact: [brytebee on GitHub](https://github.com/brytebee)*
+
